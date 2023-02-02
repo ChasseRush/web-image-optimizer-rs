@@ -24,12 +24,6 @@ pub fn resize(img: &Vec<u8>, config: ResizeConfig) -> Vec<u8> {
         Lanczos3,
     )
     .expect("Error creating resizer");
-    println!("{:?}", &config);
-    println!(
-        "{} vs {}",
-        dst.len(),
-        config.dest_height * config.dest_width
-    );
 
     resizer
         .resize(img.as_rgb(), &mut dst)
