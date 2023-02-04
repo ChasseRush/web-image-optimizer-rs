@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::utils::{self, ensure_parent_directory_exists};
+use anyhow::{anyhow, Ok};
 use image::{DynamicImage, GenericImageView};
 
 pub struct Compressor {
@@ -58,24 +59,28 @@ impl Optimizer {
         (w.try_into().unwrap(), h.try_into().unwrap())
     }
 
-    pub fn compress(&self) -> Vec<u8> {
+    pub fn compress(&self) -> anyhow::Result<Vec<u8>> {
         match &self.compressor {
-            None => panic!("Must provide a compressor to compress the image"),
+            None => Err(anyhow!(
+                "Must provide a quality value/compressor to compress an image"
+            )),
             Some(compressor) => {
                 let (width, height) = self.get_img_dimensions();
                 let img_as_vec = &self.img.as_bytes().to_vec();
                 utils::compress(img_as_vec, width, height, compressor.quality)
-                    .expect("Error in compressing")
             }
         }
     }
 
-    fn generate_save_path(&self, w: usize) -> PathBuf {
+    fn generate_save_path(&self, w: usize) -> anyhow::Result<PathBuf> {
         let path = Path::new(&self.base_path);
-        let mut result = path.parent().expect("Error getting parent").to_owned();
+        let mut result = path
+            .parent()
+            .ok_or(anyhow!("Provided image must have a parent directory"))?
+            .to_owned();
         result.push("optimized");
 
-        let stem = path.file_stem().expect("Error getting file name");
+        let stem = path.file_stem().ok_or(anyhow!("Error getting file name"))?;
 
         let mut file_name = stem.to_os_string();
 
@@ -89,40 +94,38 @@ impl Optimizer {
 
         let ext = path
             .extension()
-            .expect("Expected an extension present on img path");
+            .ok_or(anyhow!("Expected an extension present on image path"))?;
 
         file_name.push(ext);
 
         result.push(file_name);
-        result
+        Ok(result)
     }
 
-    fn compress_self(&self) -> Vec<u8> {
-        if self.compressor.is_none() {
-            panic!("Must provide a compressor");
-        }
+    fn compress_self(&self) -> anyhow::Result<()> {
+        let compressor = match &self.compressor {
+            None => Err(anyhow!(
+                "Must provide a quality value/compressor to compress an image"
+            )),
+            Some(compressor) => Ok(compressor),
+        }?;
         let img = self.img.as_bytes().to_vec();
         let (src_w, src_h) = self.get_img_dimensions();
 
-        let write_path = self.generate_save_path(src_w);
+        let write_path = self.generate_save_path(src_w)?;
 
-        let optimized = match &self.compressor {
-            None => panic!("Must provide a compressor to compress the image"),
-            Some(compressor) => utils::compress(&img, src_w, src_h, compressor.quality)
-                .expect("Error in compressing"),
-        };
+        let optimized = utils::compress(&img, src_w, src_h, compressor.quality)?;
 
-        ensure_parent_directory_exists(&write_path);
-        let mut file = File::create(write_path).expect("Error creating file");
-        file.write_all(&optimized).expect("Error writing to buff");
-        optimized
+        ensure_parent_directory_exists(&write_path)?;
+        let mut file = File::create(write_path)?;
+        file.write_all(&optimized)?;
+        Ok(())
     }
 
-    fn resize_and_maybe_compress(&self) {
+    fn resize_and_maybe_compress(&self) -> anyhow::Result<()> {
         if self.target_sizes.is_empty() {
-            panic!("Must provide at least one resize target size")
+            return Err(anyhow!("Must provide at least one resize target size"));
         }
-        self.generate_save_path(200);
         let img = self.img.as_bytes().to_vec();
         // First, resize the image
         for (target_w, target_h) in &self.target_sizes {
@@ -133,38 +136,34 @@ impl Optimizer {
                 dest_height: *target_h,
                 dest_width: *target_w,
             };
-            let optimized_img = utils::resize(&img, resize_config);
-            let write_path = self.generate_save_path(*target_w);
+
+            let resized_img = utils::resize(&img, resize_config)?;
+            let write_path = self.generate_save_path(*target_w)?;
 
             if let Some(compressor) = &self.compressor {
                 let optimized =
-                    utils::compress(&optimized_img, *target_w, *target_h, compressor.quality)
-                        .expect("Error in compressing");
-                ensure_parent_directory_exists(&write_path);
-                let mut file = File::create(write_path).expect("Error creating file");
-                file.write_all(&optimized).expect("Error writing to buff");
+                    utils::compress(&resized_img, *target_w, *target_h, compressor.quality)?;
+                ensure_parent_directory_exists(&write_path)?;
+                let mut file = File::create(write_path)?;
+                file.write_all(&optimized)?;
             } else {
-                ensure_parent_directory_exists(&write_path);
+                ensure_parent_directory_exists(&write_path)?;
                 image::save_buffer(
                     write_path,
-                    &optimized_img,
+                    &resized_img,
                     *target_w as u32,
                     *target_h as u32,
                     image::ColorType::Rgb8,
-                )
-                .expect("Error saving resized img");
+                )?;
             }
         }
+        Ok(())
     }
 
-    pub fn optimize(&self) {
+    pub fn optimize(&self) -> anyhow::Result<()> {
         match self.target_sizes.len() {
-            0 => {
-                self.compress_self();
-            }
-            _ => {
-                self.resize_and_maybe_compress();
-            }
+            0 => self.compress_self(),
+            _ => self.resize_and_maybe_compress(),
         }
     }
 }

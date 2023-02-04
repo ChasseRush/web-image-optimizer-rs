@@ -1,5 +1,6 @@
 use std::vec;
 
+use anyhow::anyhow;
 use clap::Parser;
 use image::{self, GenericImageView};
 mod optimizer;
@@ -24,17 +25,15 @@ fn compute_height_preserving_aspect_ratio(
     h / factor
 }
 
-fn main() {
-    // let path = String::from("./imgs/art.jpg");
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let img = image::open(&args.img_src).expect("Couldn't access image");
+    let img = image::open(&args.img_src)?;
     let dimensions = img.dimensions();
 
     let mut optimizer = Optimizer::new(img, &args.img_src);
 
     if args.widths.is_none() && args.quality.is_none() {
-        println!("ERROR: Either widths or quality must be provided");
-        return;
+        return Err(anyhow!("Either widths or quality must be provided"));
     }
 
     if let Some(target_widths) = args.widths {
@@ -52,5 +51,5 @@ fn main() {
         optimizer.set_quality(quality);
     }
 
-    optimizer.optimize();
+    optimizer.optimize()
 }
