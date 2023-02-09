@@ -93,7 +93,7 @@ impl Optimizer {
             Some(compressor) => {
                 let (width, height) = self.get_img_dimensions();
                 let img_as_vec = &self.img.as_bytes().to_vec();
-                let compressed_img = match &compressor.encoder {
+                match &compressor.encoder {
                     Encoder::WebP => utils::compress_webp(
                         img_as_vec,
                         width as u32,
@@ -103,8 +103,7 @@ impl Optimizer {
                     Encoder::MozJpeg => {
                         utils::compress_mozjpeg(img_as_vec, width, height, compressor.quality)
                     }
-                };
-                compressed_img
+                }
             }
         }
     }
