@@ -35,7 +35,7 @@ pub fn resize(img: &Vec<u8>, config: ResizeConfig) -> anyhow::Result<Vec<u8>> {
     Ok(resized_image_as_u8.to_vec())
 }
 
-pub fn compress(
+pub fn compress_mozjpeg(
     img: &[u8],
     width: usize,
     height: usize,
@@ -68,4 +68,15 @@ pub fn ensure_parent_directory_exists(path: &Path) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+pub fn compress_webp(
+    img: &[u8],
+    width: u32,
+    height: u32,
+    quality: f32,
+) -> Result<Vec<u8>, anyhow::Error> {
+    let encoder = webp::Encoder::from_rgb(img, width, height);
+    let encoded_img = (*encoder.encode(quality)).to_vec();
+    Ok(encoded_img)
 }

@@ -6,19 +6,34 @@ use std::{
 
 use crate::utils::{self, ensure_parent_directory_exists};
 use anyhow::{anyhow, Ok};
+use clap::ValueEnum;
 use image::{DynamicImage, GenericImageView};
+
+#[derive(Debug, ValueEnum, Clone)]
+pub enum Encoder {
+    WebP,
+    MozJpeg,
+}
 
 pub struct Compressor {
     quality: f32,
+    encoder: Encoder,
 }
 
 impl Compressor {
     pub fn new(quality: f32) -> Compressor {
-        Compressor { quality }
+        Compressor {
+            quality,
+            encoder: Encoder::MozJpeg,
+        }
     }
 
     pub fn set_quality(&mut self, quality: f32) {
         self.quality = quality;
+    }
+
+    pub fn set_encoder(&mut self, encoder: Encoder) {
+        self.encoder = encoder;
     }
 }
 
@@ -36,6 +51,17 @@ impl Optimizer {
             base_path: img_path.to_string(),
             target_sizes: vec![],
             compressor: None,
+        }
+    }
+
+    pub fn set_encoder(&mut self, encoder: Encoder) {
+        match &mut self.compressor {
+            None => {
+                let mut compressor = Compressor::new(75.0);
+                compressor.set_encoder(encoder);
+                self.compressor = Some(compressor);
+            }
+            Some(compressor) => compressor.set_encoder(encoder),
         }
     }
 
@@ -67,7 +93,18 @@ impl Optimizer {
             Some(compressor) => {
                 let (width, height) = self.get_img_dimensions();
                 let img_as_vec = &self.img.as_bytes().to_vec();
-                utils::compress(img_as_vec, width, height, compressor.quality)
+                let compressed_img = match &compressor.encoder {
+                    Encoder::WebP => utils::compress_webp(
+                        img_as_vec,
+                        width as u32,
+                        height as u32,
+                        compressor.quality,
+                    ),
+                    Encoder::MozJpeg => {
+                        utils::compress_mozjpeg(img_as_vec, width, height, compressor.quality)
+                    }
+                };
+                compressed_img
             }
         }
     }
@@ -88,15 +125,22 @@ impl Optimizer {
 
         if let Some(compressor) = &self.compressor {
             file_name.push(format!("_{}.", compressor.quality));
+            match compressor.encoder {
+                Encoder::MozJpeg => {
+                    let ext = path
+                        .extension()
+                        .ok_or(anyhow!("Expected an extension present on image path"))?;
+                    file_name.push(ext);
+                }
+                Encoder::WebP => file_name.push("webp"),
+            }
         } else {
             file_name.push(".");
+            let ext = path
+                .extension()
+                .ok_or(anyhow!("Expected an extension present on image path"))?;
+            file_name.push(ext);
         }
-
-        let ext = path
-            .extension()
-            .ok_or(anyhow!("Expected an extension present on image path"))?;
-
-        file_name.push(ext);
 
         result.push(file_name);
         Ok(result)
@@ -114,7 +158,12 @@ impl Optimizer {
 
         let write_path = self.generate_save_path(src_w)?;
 
-        let optimized = utils::compress(&img, src_w, src_h, compressor.quality)?;
+        let optimized = match compressor.encoder {
+            Encoder::WebP => {
+                utils::compress_webp(&img, src_w as u32, src_h as u32, compressor.quality)
+            }
+            Encoder::MozJpeg => utils::compress_mozjpeg(&img, src_w, src_h, compressor.quality),
+        }?;
 
         ensure_parent_directory_exists(&write_path)?;
         let mut file = File::create(write_path)?;
@@ -128,8 +177,8 @@ impl Optimizer {
         }
         let img = self.img.as_bytes().to_vec();
         // First, resize the image
+        let (src_w, src_h) = self.get_img_dimensions();
         for (target_w, target_h) in &self.target_sizes {
-            let (src_w, src_h) = self.get_img_dimensions();
             let resize_config = utils::ResizeConfig {
                 src_height: src_h,
                 src_width: src_w,
@@ -137,12 +186,25 @@ impl Optimizer {
                 dest_width: *target_w,
             };
 
-            let resized_img = utils::resize(&img, resize_config)?;
             let write_path = self.generate_save_path(*target_w)?;
 
+            let resized_img = utils::resize(&img, resize_config)?;
+
             if let Some(compressor) = &self.compressor {
-                let optimized =
-                    utils::compress(&resized_img, *target_w, *target_h, compressor.quality)?;
+                let optimized = match compressor.encoder {
+                    Encoder::WebP => utils::compress_webp(
+                        &resized_img,
+                        *target_w as u32,
+                        *target_h as u32,
+                        compressor.quality,
+                    ),
+                    Encoder::MozJpeg => utils::compress_mozjpeg(
+                        &resized_img,
+                        *target_w,
+                        *target_h,
+                        compressor.quality,
+                    ),
+                }?;
                 ensure_parent_directory_exists(&write_path)?;
                 let mut file = File::create(write_path)?;
                 file.write_all(&optimized)?;

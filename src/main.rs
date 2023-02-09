@@ -5,7 +5,7 @@ use clap::Parser;
 use image::{self, GenericImageView};
 mod optimizer;
 mod utils;
-use optimizer::Optimizer;
+use optimizer::{Encoder, Optimizer};
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -14,6 +14,8 @@ struct Args {
     widths: Option<Vec<usize>>,
     #[arg(long, short)]
     quality: Option<f32>,
+    #[arg(long, short)]
+    encoder: Option<Encoder>,
 }
 
 fn compute_height_preserving_aspect_ratio(
@@ -49,6 +51,10 @@ fn main() -> anyhow::Result<()> {
 
     if let Some(quality) = args.quality {
         optimizer.set_quality(quality);
+    }
+
+    if let Some(encoder) = args.encoder {
+        optimizer.set_encoder(encoder);
     }
 
     optimizer.optimize()
